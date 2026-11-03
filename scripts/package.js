@@ -1,5 +1,6 @@
 // バージョン別の配布用 zip を作る (依存なし。git archive を使う)。
 //   npm run package -- v1.1        … 指定したタグの zip を dist/ に作る
+//   npm run package -- dev         … 開発版: 今のコミット (HEAD) の zip を dist/ に作る (the-day-of-sagittarius-dev.zip)
 //   npm run package                … vX.Y / vX.Y.Z の全タグの zip を作る
 // zip にはゲームに必要なファイルだけを入れる。解凍して index.html を開けば遊べる (クラシックは classic/index.html)。
 const {execFileSync} = require('node:child_process');
@@ -17,6 +18,7 @@ const NAME = 'the-day-of-sagittarius';
 
 const zipName = tag => `${NAME}-${tag}.zip`;
 const isVersionTag = tag => /^v\d+\.\d+(\.\d+)?$/.test(tag);
+const DEV = 'dev';
 // その版の一番上にあるファイル名の一覧から、zip に入れるものを GAME_FILES の順に選ぶ
 const pickGameFiles = names => GAME_FILES.filter(f => names.includes(f));
 
@@ -28,13 +30,14 @@ function versionTags(){
   return git(['tag', '--list', 'v*']).split(/\r?\n/).filter(isVersionTag);
 }
 
-// tag の時点のゲームファイルを outDir に zip で書き出し、そのパスを返す
+// tag の時点 (dev なら今のコミット) のゲームファイルを outDir に zip で書き出し、そのパスを返す
 function buildZip(tag, outDir){
-  if(!isVersionTag(tag)) throw new Error(`バージョンのタグ名ではありません: ${tag}`);
+  if(!isVersionTag(tag) && tag !== DEV) throw new Error(`バージョンのタグ名でも ${DEV} でもありません: ${tag}`);
+  const ref = tag === DEV ? 'HEAD' : tag;
   fs.mkdirSync(outDir, {recursive: true});
   const out = path.join(outDir, zipName(tag));
-  const names = git(['ls-tree', '--name-only', tag]).split(/\r?\n/);
-  git(['archive', '--format=zip', `--prefix=${NAME}-${tag}/`, '-o', out, tag, '--', ...pickGameFiles(names), ...EXCLUDE]);
+  const names = git(['ls-tree', '--name-only', ref]).split(/\r?\n/);
+  git(['archive', '--format=zip', `--prefix=${NAME}-${tag}/`, '-o', out, ref, '--', ...pickGameFiles(names), ...EXCLUDE]);
   return out;
 }
 

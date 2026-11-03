@@ -1,0 +1,68 @@
+# 開発版: main に push したとき (ゲームのファイルが変わったとき) と、手で動かしたときに、今の main の配布用 zip と
+# Windows 用の exe の zip を作り、下書きのリリース「dev」に the-day-of-sagittarius-dev.zip / BATTLESHIP-dev-windows.zip として置く。
+# 下書きはリポジトリに書き込める人にしか見えないので、開発者だけが取れる。完成版は release.yml (タグの push) が作る
+name: dev
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'logic.js'
+      - 'rule-ai.js'
+      - 'brain.js'
+      - 'learned-brain.js'
+      - 'settings.js'
+      - 'music.js'
+      - 'sound.js'
+      - 'classic/**'
+      - 'desktop/**'
+      - 'scripts/package.js'
+      - '.github/workflows/dev.yml'
+
+permissions:
+  contents: write
+
+# 続けて push したときは、古い実行を止めて新しいほうだけ作る
+concurrency:
+  group: dev
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 下書きのリリース「dev」を作り直して zip を置く
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/package.js dev
+          NOTES="開発版 (コミット ${GITHUB_SHA:0:7})。下書きのまま使う。公開しない。"
+          if gh release view dev > /dev/null 2>&1; then
+            gh release edit dev --draft=true --notes "$NOTES"
+          else
+            gh release create dev --draft --target main --title "開発版 (下書き・開発者だけ)" --notes "$NOTES"
+          fi
+          gh release upload dev dist/the-day-of-sagittarius-dev.zip --clobber
+
+  desktop:
+    needs: release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: exe を作って下書きのリリース「dev」に置く
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          (cd desktop && npm install --no-audit --no-fund)
+          node desktop/build.js dev
+          ELECTRON_VERSION=$(node -p "require('./desktop/node_modules/electron/package.json').version")
+          desktop/node_modules/.bin/electron-packager desktop/build/app BATTLESHIP --platform=win32 --arch=x64 --electron-version="$ELECTRON_VERSION" --out desktop/dist --overwrite
+          (cd desktop/dist && 7z a "../../BATTLESHIP-dev-windows.zip" BATTLESHIP-win32-x64 > /dev/null)
+          gh release upload dev "BATTLESHIP-dev-windows.zip" --clobber

@@ -20,11 +20,14 @@ function zipEntries(file){
 
 test('配布ファイル名: タグ名を含む zip 名になる', () => {
   assert.equal(P.zipName('v1.1'), 'the-day-of-sagittarius-v1.1.zip');
+  assert.equal(P.zipName('dev'), 'the-day-of-sagittarius-dev.zip', '開発版');
 });
 
 test('タグ名: vX.Y / vX.Y.Z の形だけ受け付ける', () => {
   assert.equal(P.isVersionTag('v1.0'), true);
   assert.equal(P.isVersionTag('v1.2.3'), true);
+  assert.equal(P.isVersionTag('v0.0.0'), true);
+  assert.equal(P.isVersionTag('dev'), false, '開発版はタグではない');
   assert.equal(P.isVersionTag('1.0'), false);
   assert.equal(P.isVersionTag('v1'), false);
   assert.equal(P.isVersionTag('v1.0; rm'), false);
@@ -32,10 +35,28 @@ test('タグ名: vX.Y / vX.Y.Z の形だけ受け付ける', () => {
 
 test('zip の中身: ゲームに必要なファイルだけが、バージョン名のフォルダに入る', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sagittarius-'));
-  const file = P.buildZip('v1.0', dir);
-  assert.equal(path.basename(file), 'the-day-of-sagittarius-v1.0.zip');
+  const file = P.buildZip('v0.0.0', dir); // 最初のリリース (MVP)
+  assert.equal(path.basename(file), 'the-day-of-sagittarius-v0.0.0.zip');
   const names = zipEntries(file).filter(n => !n.endsWith('/')).sort();
-  assert.deepEqual(names, ['the-day-of-sagittarius-v1.0/index.html', 'the-day-of-sagittarius-v1.0/logic.js']);
+  assert.deepEqual(names, ['the-day-of-sagittarius-v0.0.0/index.html', 'the-day-of-sagittarius-v0.0.0/logic.js']);
+  fs.rmSync(dir, {recursive: true, force: true});
+});
+
+test('開発版の zip: 今のコミット (HEAD) のゲームファイルが dev のフォルダに入り、テストと観戦画面は入らない', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sagittarius-'));
+  const file = P.buildZip('dev', dir);
+  assert.equal(path.basename(file), 'the-day-of-sagittarius-dev.zip');
+  const names = zipEntries(file).filter(n => !n.endsWith('/'));
+  assert.ok(names.includes('the-day-of-sagittarius-dev/classic/index.html'));
+  assert.ok(names.includes('the-day-of-sagittarius-dev/classic/learned-brain.js'));
+  assert.ok(names.every(n => n.startsWith('the-day-of-sagittarius-dev/')));
+  assert.ok(!names.some(n => /\.test\.js$/.test(n) || n.endsWith('classic/watch.html')));
+  fs.rmSync(dir, {recursive: true, force: true});
+});
+
+test('タグでも dev でもない名前はエラーになる', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sagittarius-'));
+  assert.throws(() => P.buildZip('main', dir));
   fs.rmSync(dir, {recursive: true, force: true});
 });
 

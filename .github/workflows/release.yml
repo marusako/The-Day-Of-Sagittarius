@@ -1,5 +1,6 @@
-# バージョンのタグ (vX.Y / vX.Y.Z) を push すると、配布用 zip を作って GitHub Releases に置き、Windows 用の exe (Electron) の zip も添付する。
-# 開発版 (v0.x) は Draft (下書き。書き込める人にしか見えない)、完成版 (v1 以降) は公開のリリースにする
+# 完成版: バージョンのタグ (vX.Y.Z) を push すると、配布用 zip を作って GitHub Releases に公開し、Windows 用の exe (Electron) の zip も添付する。
+# リリースのタイトルはタグのメッセージの 1 行目 (例「v0.3.0 — マップ 3 倍・AI の展開隊」)、説明は 2 行目から。
+# 開発版は別のワークフロー (dev.yml) が、下書きのリリース「dev」に置く
 # すでにあるタグは Actions の画面の「Run workflow」でタグ名を入れて実行できる (リリースがあれば zip を差し替える)
 name: release
 
@@ -9,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'リリースするタグ (例: v2.3.2)'
+        description: 'リリースするタグ (例: v0.3.0)'
         required: true
 
 permissions:
@@ -29,13 +30,13 @@ jobs:
         run: |
           git fetch --force --tags
           node scripts/package.js "$TAG"
-          git tag -l --format='%(contents)' "$TAG" > notes.txt
+          title=$(git tag -l --format='%(contents:subject)' "$TAG")
+          git tag -l --format='%(contents:body)' "$TAG" > notes.txt
           if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release edit "$TAG" --title "$title" --notes-file notes.txt
             gh release upload "$TAG" dist/*.zip --clobber
           else
-            draft=""
-            case "$TAG" in v0.*) draft="--draft" ;; esac
-            gh release create "$TAG" dist/*.zip --title "$TAG" --notes-file notes.txt $draft
+            gh release create "$TAG" dist/*.zip --title "$title" --notes-file notes.txt
           fi
 
   # exe 化 (Electron。desktop/)。リリースを作ったあと、Windows で exe を作って「BATTLESHIP-<タグ>-windows.zip」を添付する
