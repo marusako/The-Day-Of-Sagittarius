@@ -144,7 +144,7 @@ function train(w0, samples, rng, opts){
   return w;
 }
 
-// 旧型 AI どうしの試合から、役割 (leader / escort) ごとに (入力, お手本) を集める。opts: games, seed, dt, maxTime
+// 旧型 AI どうしの試合から、役割 (leader / escort / detach) ごとに (入力, お手本) を集める。opts: games, seed, dt, maxTime
 function collect(opts){
   const data = {};
   for(const r of B.ROLES) data[r] = [];

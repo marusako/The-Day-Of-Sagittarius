@@ -6,7 +6,7 @@
   const L = typeof module !== 'undefined' && module.exports ? require('./logic.js') : root.SagittariusLogic;
   const {WORLD, INITIAL_SHIPS, MISSILE_AMMO} = L;
 
-  const ROLES = ['leader', 'escort']; // 隊長 (大将戦では旗艦) 用と護衛用の 2 つの脳
+  const ROLES = ['leader', 'escort', 'detach']; // 隊長 (大将戦では旗艦) 用・護衛用・展開隊 (分隊) 用の 3 つの脳
   const ALLY_SLOTS = 2;   // 入力に入れる近い味方の数 (自分・隊長・偵察を除く)
   const ENEMY_SLOTS = 3;  // 入力に入れる近い見えている敵の数 (= 攻撃の相手の候補)
   const GHOST_SLOTS = 2;  // 入力に入れる近い最終確認位置 (見失った敵) の数
@@ -126,10 +126,10 @@
     return {type: 'move', x: clamp(f.x + vx * MOVE_REACH, 0, WORLD.w), y: clamp(f.y + vy * MOVE_REACH, 0, WORLD.h)};
   }
 
-  const roleOf = f => (f.leader ? 'leader' : 'escort');
+  const roleOf = f => (f.leader ? 'leader' : f.detach ? 'detach' : 'escort');
 
-  // createGame の options.controllers に渡す形の AI。brains: 役割 (leader / escort) → 重み。
-  // 見えている敵も最終確認位置もない (手がかりがない) ときは、旧型 AI の動き (隊長は索敵、護衛は隊列) で探す
+  // createGame の options.controllers に渡す形の AI。brains: 役割 (leader / escort / detach) → 重み。
+  // 見えている敵も最終確認位置もない (手がかりがない) ときは、旧型 AI の動き (隊長は索敵、護衛は隊列、展開隊は自分の列を行き来) で探す
   // (脳だけだと、敵陣側の角へ行って張りつき、時間切れになっていたため)
   function controller(brains){
     return (f, fleets, intel, rng) => (Object.keys(intel).length ? decide(brains[roleOf(f)], f, fleets, intel) : L.aiDecide(f, fleets, intel, rng));
@@ -151,10 +151,13 @@
   }
   function fromPlain(o){
     const set = {};
-    for(const r of ROLES){
-      if(!Array.isArray(o[r]) || o[r].length !== paramCount()) throw new Error(`脳の形が違う: ${r}`);
+    // 古い形 (leader と escort だけ) は、展開隊用の脳を護衛用の写しにして読む
+    const roles = o && o.detach === undefined ? ['leader', 'escort'] : ROLES;
+    for(const r of roles){
+      if(!o || !Array.isArray(o[r]) || o[r].length !== paramCount()) throw new Error(`脳の形が違う: ${r}`);
       set[r] = Float64Array.from(o[r]);
     }
+    if(!set.detach) set.detach = Float64Array.from(set.escort);
     return set;
   }
 

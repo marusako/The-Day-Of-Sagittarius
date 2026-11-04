@@ -24,14 +24,17 @@ test('成績: 勝ちは 1 + ごほうび、負けは 0 + ごほうび、時間�
   assert.ok(E.matchScore(t, 'blue') < E.matchScore({outcome: 'lose', ships: {blue: full, red: full}, spotted: {}}, 'blue'));
 });
 
-test('突然変異と次の世代: 役割 (leader / escort) ごとに重みをずらす。上位はそのまま残る。元は変えない', () => {
+test('突然変異と次の世代: 役割 (leader / escort / detach) ごとに重みをずらす。上位はそのまま残る。元は変えない', () => {
   const rng = E.mulberry32(7);
   const set = B.randomBrainSet(rng, 0.5);
   const before = Array.from(set.leader);
   const m = E.mutate(set, rng, {rate: 1, sigma: 0.1});
-  assert.deepEqual(Object.keys(m).sort(), ['escort', 'leader']);
+  assert.deepEqual(Object.keys(m).sort(), ['detach', 'escort', 'leader']);
   assert.deepEqual(Array.from(set.leader), before, '元は変えない');
   assert.ok(m.leader.some((v, i) => v !== before[i]));
+  for(const r of ['leader', 'escort', 'detach']){
+    assert.ok(Array.from(m[r]).every((v, i) => v !== set[r][i]), `rate 1 なら ${r} のすべての重みが変わる`);
+  }
   const pop = [set, B.randomBrainSet(rng, 0.5), B.randomBrainSet(rng, 0.5)];
   const next = E.nextGeneration(pop, [0.1, 0.9, 0.5], rng, {elite: 1, tournament: 2, rate: 0.1, sigma: 0.05});
   assert.equal(next.length, 3);

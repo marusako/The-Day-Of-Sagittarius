@@ -30,7 +30,7 @@ test('誤差逆伝播: 勾配は数値で求めた勾配と合う', () => {
   }
 });
 
-test('模倣学習: 旧型 AI どうしの試合から隊長と護衛のお手本を集め、学習すると誤差が減る', () => {
+test('模倣学習: 旧型 AI どうしの試合から隊長と護衛 (と展開隊) のお手本を集め、学習すると誤差が減る', () => {
   const data = I.collect({games: 2, seed: 11, dt: 1 / 30, maxTime: 60});
   assert.ok(data.leader.length > 0 && data.escort.length > 0);
   assert.ok(data.escort.every(s => s.input.length === B.INPUTS));
@@ -39,4 +39,10 @@ test('模倣学習: 旧型 AI どうしの試合から隊長と護衛のお手�
   const samples = data.escort.slice(0, 200);
   const w1 = I.train(w0, samples, rng, {epochs: 5, lr: 0.003, batch: 32});
   assert.ok(I.meanLoss(w1, samples) < I.meanLoss(w0, samples));
+});
+
+test('模倣学習: 展開隊がいる試合では、展開隊のお手本が detach に入る', () => {
+  const data = I.collect({games: 2, seed: 11, dt: 1 / 30, maxTime: 300});
+  assert.ok(data.detach && data.detach.length > 0, 'detach のお手本がある');
+  assert.ok(data.detach.every(s => s.input.length === B.INPUTS));
 });

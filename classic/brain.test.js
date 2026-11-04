@@ -22,9 +22,9 @@ function biasBrain(bias){
   return w;
 }
 
-test('脳の形: 入力 50・中間 24・出力 7 (移動 x・y、攻撃しない、近い敵 3 つ、ミサイルの直進)。隊長用と護衛用の 2 つ', () => {
+test('脳の形: 入力 50・中間 24・出力 7 (移動 x・y、攻撃しない、近い敵 3 つ、ミサイルの直進)。隊長用・護衛用・展開隊用の 3 つ', () => {
   assert.deepEqual([B.INPUTS, B.HIDDEN, B.OUTPUTS], [50, 24, 7]);
-  assert.deepEqual(B.ROLES, ['leader', 'escort']);
+  assert.deepEqual(B.ROLES, ['leader', 'escort', 'detach']);
   assert.equal(B.paramCount(), 24 * 50 + 24 + 7 * 24 + 7);
   const f = fleet();
   assert.equal(B.observe(f, [f], {}).length, B.INPUTS);
@@ -75,8 +75,8 @@ test('命令: ミサイルの出力が正なら直進、0 以下なら誘導に�
   assert.equal(f.missileMode, 'guided');
 });
 
-test('controller: 隊長は隊長用の脳、ほかは護衛用の脳で考える', () => {
-  const set = {leader: biasBrain([0, -3, 1, 0, 0, 0, 0]), escort: biasBrain([0, 3, 1, 0, 0, 0, 0])};
+test('controller: 隊長は隊長用の脳、護衛は護衛用の脳で考える', () => {
+  const set = {leader: biasBrain([0, -3, 1, 0, 0, 0, 0]), escort: biasBrain([0, 3, 1, 0, 0, 0, 0]), detach: biasBrain([0, 3, 1, 0, 0, 0, 0])};
   const ctl = B.controller(set);
   const lead = fleet({id: 'l', leader: true}), esc = fleet({id: 'e'});
   const intel = {r1: {x: 0, y: 0, visible: false}}; // 手がかりがあるとき (ないときは旧型 AI で探す)
@@ -85,7 +85,7 @@ test('controller: 隊長は隊長用の脳、ほかは護衛用の脳で考え�
 });
 
 test('controller: 見えている敵も最終確認位置もないときは、旧型 AI の動き (索敵) で探す。手がかりがあれば脳で考える', () => {
-  const set = {leader: biasBrain([0, -3, 1, 0, 0, 0, 0]), escort: biasBrain([0, 3, 1, 0, 0, 0, 0])};
+  const set = {leader: biasBrain([0, -3, 1, 0, 0, 0, 0]), escort: biasBrain([0, 3, 1, 0, 0, 0, 0]), detach: biasBrain([0, 3, 1, 0, 0, 0, 0])};
   const ctl = B.controller(set);
   const lead = fleet({id: 'l', leader: true, x: 2400, y: 9000}), esc = fleet({id: 'e', x: 2000, y: 9000});
   const fleets = [lead, esc];
@@ -95,12 +95,110 @@ test('controller: 見えている敵も最終確認位置もないときは、�
   assert.notDeepEqual(ctl(lead, fleets, ghost, seq(0.5, 0.3)), L.aiDecide(lead, fleets, ghost, seq(0.5, 0.3)), '最終確認位置があれば脳');
 });
 
-test('保存: toPlain と fromPlain で元に戻る。形が違えばエラー。ランダムな脳は -scale〜scale', () => {
-  const set = B.randomBrainSet(seq(0.1, 0.9, 0.5), 0.5);
-  assert.ok(set.leader.every(v => v >= -0.5 && v <= 0.5));
-  const back = B.fromPlain(JSON.parse(JSON.stringify(B.toPlain(set))));
-  assert.deepEqual(Array.from(back.escort), Array.from(set.escort));
+test('roleOf: 隊長は leader、展開隊は detach、それ以外は escort。隊長が detach を持っていても leader', () => {
+  assert.equal(B.roleOf(fleet({leader: true})), 'leader');
+  assert.equal(B.roleOf(fleet({detach: true})), 'detach');
+  assert.equal(B.roleOf(fleet({})), 'escort');
+  assert.equal(B.roleOf(fleet({leader: true, detach: true})), 'leader');
+});
+
+test('controller: 展開隊は展開隊用の脳、護衛は護衛用の脳で判断する (2 つを逆の動きにして確かめる)', () => {
+  const set = {
+    leader: biasBrain([0, 0, 1, 0, 0, 0, 0]),
+    escort: biasBrain([0, -3, 1, 0, 0, 0, 0]), // 北へ
+    detach: biasBrain([0, 3, 1, 0, 0, 0, 0])   // 南へ
+  };
+  const ctl = B.controller(set);
+  const lead = fleet({id: 'l', leader: true}), esc = fleet({id: 'e'}), det = fleet({id: 'd', detach: true});
+  const fleets = [lead, esc, det];
+  const intel = {r1: {x: 0, y: 0, visible: false}};
+  assert.ok(ctl(esc, fleets, intel, seq(0.5)).y < esc.y, '護衛は護衛用の脳 (北へ)');
+  assert.ok(ctl(det, fleets, intel, seq(0.5)).y > det.y, '展開隊は展開隊用の脳 (南へ)');
+});
+
+test('controller: 展開隊も手がかりがなければ旧型 AI の動き', () => {
+  const set = {leader: biasBrain([0, 0, 1, 0, 0, 0, 0]), escort: biasBrain([0, -3, 1, 0, 0, 0, 0]), detach: biasBrain([0, 3, 1, 0, 0, 0, 0])};
+  const ctl = B.controller(set);
+  // 展開隊の旧型 AI は判断のたびに行き来の向き (sweep) を切り替えるので、比べる側にはそれぞれ新しい艦隊を使う
+  const det = fleet({id: 'd', detach: true, x: 2000, y: 9000}), same = fleet({id: 'd', detach: true, x: 2000, y: 9000});
+  assert.deepEqual(ctl(det, [det], {}, seq(0.5, 0.3)), L.aiDecide(same, [same], {}, seq(0.5, 0.3)));
+});
+
+test('試合の中でも、展開隊の艦隊は展開隊用の脳で動く (試合を進めて、本物の展開隊が出たあとの命令を見る)', () => {
+  const rng = seq(0.13, 0.57, 0.91, 0.29, 0.73);
+  // 護衛は左右の一方へ、展開隊は逆へ動く脳 (上下だと赤は端に近く、移動先が端で止まって見分けにくい)
+  const set = {leader: biasBrain([0, 0, 1, 0, 0, 0, 0]), escort: biasBrain([-3, 0, 1, 0, 0, 0, 0]), detach: biasBrain([3, 0, 1, 0, 0, 0, 0])};
+  const base = B.controller(set), log = [];
+  const ctl = (f, fleets, intel, r) => {
+    const cmd = base(f, fleets, intel, r);
+    if(cmd && cmd.type === 'move') log.push({detach: !!f.detach, leader: f.leader, dx: cmd.x - f.x});
+    return cmd;
+  };
+  const g = L.createGame({speed: 34, defense: 33, attack: 33}, rng, 'flagship', {controllers: {red: ctl}});
+  for(const f of g.fleets) f.isPlayer = false;
+  const blue = g.fleets.find(f => f.team === 'blue');
+  for(let i = 0; i < 60; i++){
+    // 赤から遠い最終確認位置を置いて、手がかりがある (脳で考える) 状態にする
+    if(!g.intel.red[blue.id]) g.intel.red[blue.id] = {x: L.WORLD.w / 2, y: L.WORLD.h / 2, visible: false};
+    L.step(g, 0.1, rng);
+  }
+  assert.ok(g.fleets.some(f => f.team === 'red' && f.detach), '展開隊が出ている');
+  const dets = log.filter(e => e.detach), escs = log.filter(e => !e.detach && !e.leader);
+  assert.ok(dets.length > 0 && escs.length > 0, '展開隊と護衛の両方が脳で考えた');
+  const sign = Math.sign(dets[0].dx);
+  assert.notEqual(sign, 0);
+  assert.ok(dets.every(e => Math.sign(e.dx) === sign), '展開隊はすべて展開隊用の脳の向き');
+  assert.ok(escs.every(e => Math.sign(e.dx) === -sign), '護衛はすべて護衛用の脳の向き (逆)');
+});
+
+test('randomBrainSet: 3 つの役割の脳を作り、どれも長さ paramCount()、値は -scale〜scale', () => {
+  const set = B.randomBrainSet(seq(0.1, 0.9, 0.5, 0.0, 1.0), 0.5);
+  assert.deepEqual(Object.keys(set).sort(), ['detach', 'escort', 'leader']);
+  for(const r of ['leader', 'escort', 'detach']){
+    assert.equal(set[r].length, B.paramCount(), r);
+    assert.ok(Array.from(set[r]).every(v => v >= -0.5 && v <= 0.5), r);
+  }
+});
+
+test('保存: toPlain は 3 つのキーを持ち、JSON を通して fromPlain で 3 つとも元に戻る', () => {
+  const set = B.randomBrainSet(seq(0.1, 0.9, 0.5, 0.3, 0.7), 0.5);
+  const plain = B.toPlain(set);
+  assert.deepEqual(Object.keys(plain).sort(), ['detach', 'escort', 'leader']);
+  const back = B.fromPlain(JSON.parse(JSON.stringify(plain)));
+  for(const r of ['leader', 'escort', 'detach']) assert.deepEqual(Array.from(back[r]), Array.from(set[r]), r);
+});
+
+test('fromPlain: 古い形 (leader と escort だけ) なら detach は escort の写し (別の配列)', () => {
+  const n = B.paramCount();
+  const old = {leader: Array.from({length: n}, (_, i) => i * 0.001), escort: Array.from({length: n}, (_, i) => -i * 0.002)};
+  const set = B.fromPlain(old);
+  assert.deepEqual(Array.from(set.detach), Array.from(set.escort));
+  assert.notEqual(set.detach, set.escort);
+  set.detach[0] = 99;
+  assert.notEqual(set.escort[0], 99, 'detach を変えても escort は変わらない');
+  set.escort[1] = 77;
+  assert.notEqual(set.detach[1], 77, 'escort を変えても detach は変わらない');
+  assert.deepEqual(Array.from(set.leader), old.leader);
+});
+
+test('fromPlain: 形が違えばエラー (長さ違い・leader か escort がない・detach の長さ違い)', () => {
+  const n = B.paramCount();
+  const ok = () => new Array(n).fill(0);
+  assert.doesNotThrow(() => B.fromPlain({leader: ok(), escort: ok(), detach: ok()}));
   assert.throws(() => B.fromPlain({leader: [1, 2], escort: []}));
+  assert.throws(() => B.fromPlain({leader: ok(), escort: new Array(n - 1).fill(0)}));
+  assert.throws(() => B.fromPlain({escort: ok()}));
+  assert.throws(() => B.fromPlain({leader: ok()}));
+  assert.throws(() => B.fromPlain({escort: ok(), detach: ok()}));
+  assert.throws(() => B.fromPlain({leader: ok(), escort: ok(), detach: new Array(n + 1).fill(0)}));
+  assert.throws(() => B.fromPlain({leader: ok(), escort: ok(), detach: []}));
+});
+
+test('learned-brain.js (今の古い形でも新しい形でも) を fromPlain で読める', () => {
+  const lb = require('./learned-brain.js');
+  const set = B.fromPlain(lb.brains);
+  for(const r of B.ROLES) assert.equal(set[r].length, B.paramCount(), r);
+  if(!lb.brains.detach) assert.deepEqual(Array.from(set.detach), Array.from(set.escort));
 });
 
 test('試合に入れても最後まで進む (学習型 AI 対 旧型 AI)', () => {
